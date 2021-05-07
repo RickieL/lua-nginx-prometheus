@@ -7,7 +7,7 @@ local ngx_log = ngx.log
 local ngx_err = ngx.ERR
 local timer_at = ngx.timer.at
 local ngx_sleep = ngx.sleep
-local delay = 300  -- 轮询consul时间间隔，10s
+local delay = 20  -- 轮询consul时间间隔，10s
 local _M = {}
 
 -- 初始化Prometheus指标，全局字典对象，initted 已经被初始化标记，looped 已经开始循环标记
@@ -24,7 +24,7 @@ end
 function _M.sync_consul()
     local httpc = http.new()
     httpc:set_timeout(500)
-    local res, err = httpc:request_uri("http://consul_ip:8500/v1/kv/domain/Value?raw")
+    local res, err = httpc:request_uri("http://"..consul_host..":8500/v1/kv/domain/?keys&dc=dc1&separator=%2F")
     if not res then
         ngx_log(ngx_err, err)
         metric_get_consul:inc(1, {"failed"})
@@ -38,8 +38,8 @@ function _M.sync_consul()
         return false
     end
     for i=1, #hosts do
-        local host = hosts[i]
-        local get_uri_by_host, err = httpc:request_uri("http://consul_ip:8500/v1/kv/domain/"..host.."/routers?raw")
+        local host = string.sub(hosts[i],8,-2)
+        local get_uri_by_host, err = httpc:request_uri("http://"..consul_host..":8500/v1/kv/domain/"..host.."/routers?raw")
         if not get_uri_by_host then
             ngx_log(ngx_err, err)
             return false

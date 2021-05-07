@@ -1,7 +1,7 @@
 # lua-nginx-prometheus
 这是一个监控Nginx流量的扩展程序.
 
-## 介绍
+## 一、介绍
 基于Openresty和Prometheus、Consul、Grafana设计的，实现了针对域名和Endpoint级别的流量统计，使用Consul做服务发现、KV存储，Grafana做性能图展示。
 
 最终展现图
@@ -9,12 +9,7 @@
 ![](screenshot/grafana.png)
 
 ### 主要实现流程
-
-POST Json 注册服务 -> Consul Service <- Prometheus -> 定时抓取 http指标接口 Nginx
-
-POST KV 提交Endpoint -> Consul KV Service <- Nginx 定时更新需要监控的Endpoint
-
-Grafana 读取 -> Prometheus
+![](screenshot/structure.jpg)
 
 ### 优点
 
@@ -22,30 +17,26 @@ Grafana 读取 -> Prometheus
 * 通过Prometheus提供了非常丰富的查询维度，例如（域名、Endpoint、状态码、协议类型、method），当然还可以非常简单地添加更多。
 * Grafana图表功能强大，非常直观地查看各个服务的状态和发现异常。
 
-## 安装和使用说明
+### 相关依赖
+1. `openresty` 或 `nginx` + `lua` 模块， 用于提供lua脚本环境。
+2. `consul` 用于服务的注册和对应endpoint的kv存储。 项目地址：[https://www.consul.io/](https://www.consul.io/)
+3. `prometheus` 用于监控相关的指标及对监控数据的存储。 项目地址：[https://www.consul.io/](https://www.consul.io/)
+4. `grafana` 用于监控图像的展示和监控告警的实现。 项目地址：[https://grafana.com/](https://grafana.com/)
+5. `nginx-lua-prometheus` [nginx-lua-prometheus](https://github.com/knyar/nginx-lua-prometheus) 用于prometheus的metrics数据的生成
+6. `lua-resty-consul` [lua-resty-consul](https://github.com/hamishforbes/lua-resty-consul) 用于和consul进行交互
+7. `lua-resty-http` [lua-resty-http](https://github.com/ledgetech/lua-resty-http) 用于对consul发起REST请求
 
-本项目是基于Openresty开发，所以事先安装好Openresty，这个非常简单。
-
-安装Consul，这是基于golang开发的服务自动发现工具，详细查看官方文档。`https://www.consul.io/`
-
-安装Prometheus，这是一个时序数据库和监控工具，性能和存储十分可靠，把Prometheus配置发现服务使用Consul。官方文档：`https://prometheus.io/docs/operating/configuration/#<consul_sd_config>`
-
-安装Grafana。`https://grafana.com/`
-
-### 安装 本扩展程序
-
-克隆 lua-nginx-prometheus 仓库到Openresty服务器上。
-
-克隆依赖Prometheus [nginx-lua-prometheus](https://github.com/knyar/nginx-lua-prometheus) 仓库到服务器上。
-
-克隆依赖Consul [lua-resty-consul](https://github.com/hamishforbes/lua-resty-consul) 仓库到服务器上。
+## 二、安装
 
 把lua-nginx-prometheus仓库中的 counter.conf文件复制到Openresty目录下的nginx/conf/conf.d目录内。
+
+
+## 三、配置
 
 ### 编辑 counter.conf 文件
 
 ```conf
-lua_package_path "/Users/zl/Work/Counter/nginx-lua-prometheus/?.lua;;/Users/zl/Work/Counter/lua-resty-consul/lib/resty/?.lua;;/Users/zl/Work/Counter/lib/?.lua;;";
+lua_package_path "$prefix/nginx-lua-prometheus/?.lua;$prefix/lua-resty-consul/lib/resty/?.lua;$prefix/Counter/lib/?.lua;;";
 ```
 
 修改lua_package_path参数，把 lua-nginx-prometheus、nginx-lua-prometheus、lua-resty-consul三个目录位置指定，目录下一定是包含 ?.lua。
@@ -88,7 +79,7 @@ curl -X PUT -d @test.json http://<ip>:<port>/v1/agent/service/register
 ```json
 {
   "ID": <定义唯一的ID>,
-  "Name": "对应prometheus consul_sd_config",
+  "Name": "对应prometheus consul_sd_config 的service_name",
   "Tags": [
     ""
   ],
@@ -147,3 +138,15 @@ topk(5, sum(rate(nginx_http_request_duration_seconds_sum{host="api.qq.com",endpo
 ```
 5个响应时间最大的，不包含 websocket接口
 
+
+## 待解决事项
+1. 因为是在worker进程启动的，需要看看最终的统计数据是否一致。
+1. consul对应key的规范
+1. 最后的匹配规则，是每一条都匹配，还是需要在匹配到后自动跳出。
+1. 数据采样问题（采样频率），需要可以在consul里配置。
+1. 在consul里配置后，不立即生效，需要弄成手动重启的方式。
+1. 需要写一个location段进行对应功能的处理，如更新、删除key等的生效
+1. 需要能自动注册本服务到consul
+1. 各项目的部署和配置文档，需要注意的事项等
+1. 性能压测
+1. 在规则数量增加时的性能情况
