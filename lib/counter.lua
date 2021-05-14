@@ -1,13 +1,14 @@
 local cjson = require('cjson')
-local http = require('resty.http')
+--local http = require('resty.http')
 local resty_consul = require 'consul'
-local pcall = pcall
+--local pcall = pcall
 local json_decode = cjson.decode
 local ngx = ngx
 local ngx_log = ngx.log
 local ngx_err = ngx.ERR
+local ngx_info = ngx.INFO
 local timer_at = ngx.timer.at
-local ngx_sleep = ngx.sleep
+--local ngx_sleep = ngx.sleep
 
 local my_consul = resty_consul:new({
     host = consul_host,
@@ -96,7 +97,7 @@ function _M.first_init()
            ngx_log(ngx_err, "Call timer_at failed: ", err)
            return
         end
-        ngx_log(ngx.INFO, "First initialize load consul data!")
+        ngx_log(ngx_info, "First initialize load consul data!")
     end
 end
 -- 开始循环定时拉取consul数据
@@ -104,8 +105,8 @@ function _M.loop_load()
     local loop_handler
     -- premature 表示nginx 的slave进程的状态（例如nginx平滑reload时，子进程可能存在未完全退出）
     function loop_handler(premature)
-        ngx_log(ngx_err, "Timer prematurely expired: ", premature)
-        ngx_log(ngx_err, "Worker exiting: ", ngx.worker.exiting())
+        ngx_log(ngx_info, "Timer prematurely expired: ", premature)
+        ngx_log(ngx_info, "Worker exiting: ", ngx.worker.exiting())
         if not premature then
             if _M.sync_consul() then
                 -- 拉起定时器
@@ -195,10 +196,10 @@ function _M.deregister()
     if not res then
         ngx.log(ngx.ERR, err)
         local msg = 'service "nginx-'..myIP..'-9145" deregister failed!'
-	return false
+        ngx.say(msg)
     else
         local msg = 'service "nginx-'..myIP..'-9145" deregister successed!'
-        ngx.print(msg)
+        ngx.say(msg)
     end
 end
 
