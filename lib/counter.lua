@@ -35,6 +35,9 @@ function _M.init()
     prometheus = require("prometheus").init("prometheus_metrics") 
     metric_get_consul = prometheus:counter("nginx_consul_get_total", "Number of query uri from consul", {"status"})
     metric_latency = prometheus:histogram("nginx_http_request_duration_seconds", "HTTP request latency status", {"host", "status", "scheme", "method", "endpoint"})
+    metric_sample_percent = prometheus:gauge("nginx_sample_percent", "HTTP request sample % to count",{"percent"})
+    -- depend on the nginx module ngx_http_stub_status_module
+    -- metric_connections = prometheus:gauge("nginx_http_connections", "Number of HTTP connections", {"state"})
 end
 -- 从consul上拉取k-v数据，先取得 domain内的 域名列表，然后迭代全部域名key内的endpoint值
 function _M.sync_consul()
@@ -86,6 +89,10 @@ function _M.first_init()
                 ngx_log(ngx_err, "Call register failed!")
                 return
             end
+            if not _M.update_count_percent() then
+                ngx_log(ngx_err, "update count_percent failed!")
+                return
+            end
             if not _M.sync_consul() then
                 ngx_log(ngx_err, "Call sync_consul failed!")
                 return
@@ -134,8 +141,8 @@ function _M.loop_load()
         end
     end
 end
-function _M.log()
-    _M.first_init()
+
+function _M.do_log()
     -- _M.loop_load()
     local request_host = ngx.var.host
     local request_uri = ngx.unescape_uri(ngx.var.uri)
@@ -162,6 +169,21 @@ function _M.log()
                 end
             end
         end
+    end
+end
+
+function _M.full_log()
+    _M.first_init()
+    _M.do_log()
+end
+
+function _M.filter_log()
+    _M.first_init()
+    local percent = _M.get_count_percent_mem()
+    local random_num = _M.random(1, 100)
+    if random_num <= percent then
+        -- ngx_log(ngx_info, "---- randdom: "..tostring(random_num).." percent: "..tostring(percent).."----\n\n")
+        _M.do_log()
     end
 end
 
@@ -201,6 +223,75 @@ function _M.deregister()
         local msg = 'service "nginx-'..myIP..'-9145" deregister successed!'
         ngx.say(msg)
     end
+end
+
+function _M.get_count_percent_mem()
+    local count_percent_mem = global_set:get("count_percent")
+    if count_percent_mem == nil then
+        return 0
+    elseif count_percent_mem <= 0 then
+        return 0
+    elseif count_percent_mem >= 100 then
+        return 100
+    else
+        return count_percent_mem
+    end
+end
+
+function _M.get_count_percent() 
+    -- 1. 从 shared cache 获取
+    -- 2. 若 shared cache 没有，则从consul获取，并写入到share cache
+    -- 3. 直接返回数值： 0: 不做统计；x(0-100): 取x%的请求进行统计；100:统计所有的
+    local count_percent_mem = global_set:get("count_percent") 
+    if count_percent_mem == nil then
+        local percent = _M.consul_count_percent()
+        global_set:set("count_percent",percent)
+        -- ngx.say(percent)  
+        return percent
+    else
+        -- ngx.say(count_percent_mem)  
+        return count_percent_mem
+    end
+end
+
+function _M.update_count_percent()
+    local percent = _M.consul_count_percent()
+    global_set:set("count_percent",percent)
+    metric_sample_percent:set(percent,{"percent"})
+    --ngx.say("newest count percent:"..tostring(percent))
+    return true
+end
+
+function _M.consul_count_percent()
+    local args = {
+        dc = "dc1",
+        raw = true,
+    }
+    local res, err = my_consul:get('/kv/ngx_status/count_percent',args)
+    if (not res ) or res.body == nil then
+        ngx_log(ngx_err, "get nil value from consul /kv/ngx_status/count_percent")
+        return 0
+    end
+
+    local count_percent = math.floor(tonumber(res.body))
+    if count_percent <= 0 then
+        return 0
+    elseif count_percent > 100 then
+        return 100
+    else
+        return count_percent 
+    end
+end
+
+function _M.random(min,max)
+    local in_file = io.open("/dev/urandom", "r")
+    if in_file ~= nil then
+        local d = in_file:read(4)
+        math.randomseed(os.time() + d:byte(1) + (d:byte(2) * 256) + (d:byte(3) * 65536))
+    else
+        math.randomseed(tostring(os.time()):reverse():sub(1,7))
+    end
+    return math.random(min,max)
 end
 
 function _M.get_consul()
